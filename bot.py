@@ -14,18 +14,13 @@ async def on_message(message):
     if message.channel.id != int(config.get('bot', 'channel_id')):
         return
 
-    gm = re.search(r'\bgm\b', message.content, flags=re.IGNORECASE)
-    gn = re.search(r'\bgn\b', message.content, flags=re.IGNORECASE)
-
     reactions = []
 
-    if gm:
-        reactions.append(message.add_reaction(config.get('bot', 'gm')))
+    for word in ['gm', 'gn']:
+        if re.search(rf'\b{word}\b', message.content, flags=re.IGNORECASE):
+            reactions.append(message.add_reaction(config.get('bot', word)))
 
-    if gn:
-        reactions.append(message.add_reaction(config.get('bot', 'gn')))
-
-    if gm or gn:
+    if len(reactions) > 0:
         reactions.append(message.add_reaction(config.get('bot', 'ocean')))
 
     await asyncio.gather(*reactions)
