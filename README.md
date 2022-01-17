@@ -18,4 +18,4 @@ Discord bot that reacts to "gm" with a "sun" and "ocean" emoji and "gn" with a "
 * Add it to the desired server
 * Install Python and `pipenv`
 * Run `pipenv install`
-* Run `pipenv shell` and then `python3 bot.py`
+* Run `pipenv run python3 bot.py`
