@@ -15,7 +15,7 @@ ocean_emoji = config.get('bot', 'ocean')
 class Player(object):
     def __init__(self, id):
         self.id = id
-        self.initialized_at = datetime.now(tz = timezone.utc)
+        self.initialized_at = datetime.utcnow()
         self.score = 0
         self.sleeping = False
 
@@ -26,7 +26,7 @@ def leaderboard_purge():
 
     for player_id in list(leaderboard.keys()):
         player = leaderboard.get(player_id, None)
-        if player and player.initialized_at + timedelta(days = 1) < datetime.now(tz = timezone.utc):
+        if player and player.initialized_at + timedelta(days = 1) < datetime.utcnow():
             leaderboard.pop(player_id, None)
 
 def message_includes(message, word):
@@ -85,7 +85,7 @@ async def check_reaction(reaction, user):
         return
 
     player = leaderboard.get(user.id, None)
-    if not player or player.sleeping or message.created_at.astimezone(timezone.utc) < player.initialized_at:
+    if not player or player.sleeping or message.created_at < player.initialized_at:
        return
 
     async for other_user in reaction.users():
