@@ -7,6 +7,7 @@ Discord bot that reacts to "gm" with a "sun" and "ocean" emoji and "gn" with a "
 * Create a new application at https://discord.com/developers/applications
 * Change the general information as desired
 * Go to the "Bot" section and create a bot
+  * Enable "Server Members Intent"
 * Copy `bot.ini.example` to `bot.ini` and adjust settings
   * Click to reveal the token in the "Bot" section and set it in `bot.ini`
   * Copy channel ID and set it in `bot.ini`
