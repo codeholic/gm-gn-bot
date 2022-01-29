@@ -8,15 +8,14 @@ Discord bot that reacts to "gm" with a "sun" and "ocean" emoji and "gn" with a "
 * Change the general information as desired
 * Go to the "Bot" section and create a bot
   * Enable "Server Members Intent"
-* Copy `bot.ini.example` to `bot.ini` and adjust settings
-  * Click to reveal the token in the "Bot" section and set it in `bot.ini`
-  * Copy channel ID and set it in `bot.ini`
-  * Copy custom emoji IDs and set them in `bot.ini`
-* Go to the "OAuth2 > URL Generator" section
-* Choose "bot"
-* Choose "Add Reactions"
-* Copy and open the URL
-* Add it to the desired server
+* Create a new role for the Master of Ceremonies
+* Copy `bot.ini.example` to `bot.ini` and adjust settings in `bot.ini`
+  * Get the bot token in the "Bot" section and set it
+  * Set channel ID
+  * Set role ID
+  * Set custom emojis
 * Install Python and `pipenv`
 * Run `pipenv install`
 * Run `pipenv run python3 bot.py`
+* Use the displayed URL to add the bot to the desired server
+* Make sure that the bot role is higher in the hierarchy than the Master of Ceremonies
