@@ -81,11 +81,11 @@ async def check_reaction(reaction, user):
     if user.id == client.user.id:
         return
 
-    if message.channel.id != channel_id:
+    if message.channel.id != channel_id or message.author.id == user.id:
         return
 
     player = leaderboard.get(user.id, None)
-    if not player or player.sleeping or message.created_at < player.initialized_at:
+    if not player or player.sleeping or message.created_at + timedelta(hours = 1) < datetime.utcnow():
        return
 
     async for other_user in reaction.users():
