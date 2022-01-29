@@ -65,6 +65,10 @@ async def on_message(message):
             max_score = max(player.score for player in leaderboard.values())
             if player.score == max_score:
                 reactions.append(message.add_reaction(config.get('bot', 'crown')))
+                role = message.guild.get_role(int(config.get('bot', 'role_id')))
+                for user in role.members:
+                    reactions.append(user.remove_roles(role))
+                reactions.append(message.author.add_roles(role))
             player.sleeping = True
 
     await asyncio.gather(*reactions)
