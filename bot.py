@@ -112,7 +112,7 @@ async def on_reaction_remove(reaction, user):
         return
 
     player.score -= 1
-    print(f'<id: {player.id} score: {player.score}')
+    print(f'id: {player.id} score: {player.score}')
 
 @client.event
 async def on_ready():
