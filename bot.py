@@ -29,7 +29,7 @@ class GuildNotFoundError(Error):
 
 class PlayerNotFoundError(Error):
     def __init__(self, player):
-        self.message = f'Player {player.id} not found'
+        self.message = f'Player {player.guild_id} {player.member_id} not found'
         super().__init__(self.message)
 
 class Player(object):
@@ -67,6 +67,7 @@ class Guild(object):
         global db
 
         self.id = str(id)
+        self.channel_id = None
 
         doc = db.collection('guilds').document(self.id).get()
         if not doc.exists:
@@ -110,7 +111,7 @@ async def on_message(message):
         guild = message.guild
         config = Guild(guild.id)
 
-        if message.channel.id != int(config.channel_id):
+        if config.channel_id and message.channel.id != int(config.channel_id):
             return
 
         reaction_emojis = {
