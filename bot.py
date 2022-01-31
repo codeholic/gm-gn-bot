@@ -107,6 +107,8 @@ client = discord.Client(intents = intents)
 
 @client.event
 async def on_message(message):
+    reactions = []
+
     try:
         guild = message.guild
         config = Guild(guild.id)
@@ -118,8 +120,6 @@ async def on_message(message):
             'gm': config.gm_emoji,
             'gn': config.gn_emoji,
         }
-
-        reactions = []
 
         for word, emoji in reaction_emojis.items():
             if message_includes(message, word):
@@ -151,12 +151,12 @@ async def on_message(message):
                 reactions.append(message.author.add_roles(role))
 
             player.sleep()
-
-        await asyncio.gather(*reactions)
     except GuildNotFoundError as err:
         print(err)
     except PlayerNotFoundError:
         pass
+
+    await asyncio.gather(*reactions)
 
 async def check_reaction(reaction, user):
     message = reaction.message
