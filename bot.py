@@ -107,6 +107,14 @@ client = discord.Client(intents = intents)
 
 @client.event
 async def on_message(message):
+    greetings = {}
+    for word in ['gm', 'gn']:
+        if message_includes(message, word):
+            greetings[word] = True
+
+    if len(greetings) == 0:
+        return
+
     reactions = []
 
     try:
@@ -122,20 +130,17 @@ async def on_message(message):
         }
 
         for word, emoji in reaction_emojis.items():
-            if message_includes(message, word):
+            if greetings.get(word, False):
                 reactions.append(message.add_reaction(emoji))
-
-        if len(reactions) == 0:
-            return
 
         reactions.append(message.add_reaction(config.guild_emoji))
 
         member_id = message.author.id
 
-        if message_includes(message, 'gm'):
+        if greetings.get('gm', False):
             Player(guild.id, member_id, initialize = True)
 
-        if message_includes(message, 'gn'):
+        if greetings.get('gn', False):
             leaderboard_purge(guild.id)
 
             player = Player(guild.id, member_id)
