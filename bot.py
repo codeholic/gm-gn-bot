@@ -2,32 +2,100 @@ import asyncio
 import configparser
 import discord
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
+from more_itertools import chunked
+import functools
 
 config = configparser.ConfigParser()
 with open('bot.ini', 'r') as file:
     config.read_file(file)
 
-channel_id = int(config.get('bot', 'channel_id'))
-reaction_emojis = dict([word, config.get('bot', word)] for word in ['gm', 'gn'])
-ocean_emoji = config.get('bot', 'ocean')
+import firebase_admin
+from firebase_admin import credentials
+from firebase_admin import firestore
+
+cred = credentials.Certificate('firebase.json')
+firebase_admin.initialize_app(cred)
+
+db = firestore.client()
+
+class Error(Exception):
+    pass
+
+class GuildNotFoundError(Error):
+    def __init__(self, guild):
+        self.message = f'Guild {guild.id} not found'
+        super().__init__(self.message)
+
+class PlayerNotFoundError(Error):
+    def __init__(self, player):
+        self.message = f'Player {player.id} not found'
+        super().__init__(self.message)
 
 class Player(object):
-    def __init__(self, id):
-        self.id = id
+    def __init__(self, guild_id, member_id, initialize = False):
+        global db
+
+        self.guild_id = str(guild_id)
+        self.member_id = str(member_id)
         self.initialized_at = datetime.utcnow()
         self.score = 0
         self.sleeping = False
 
-leaderboard = {}
+        if initialize:
+            self.ref().set(self.__dict__)
+            return
 
-def leaderboard_purge():
-    global leaderboard
+        doc = self.ref().get()
+        if not doc.exists:
+            raise PlayerNotFoundError(self)
 
-    for player_id in list(leaderboard.keys()):
-        player = leaderboard.get(player_id, None)
-        if player and player.initialized_at + timedelta(days = 1) < datetime.utcnow():
-            leaderboard.pop(player_id, None)
+        self.__dict__.update(doc.to_dict())
+
+    def ref(self):
+        return db.collection('players').document(f'{self.guild_id}:{self.member_id}')
+
+    def sleep(self):
+        self.ref().update({ 'sleeping': True })
+
+    def change_score(self, value):
+        self.score += value
+        self.ref().update({ 'score': firestore.Increment(value) })
+
+class Guild(object):
+    def __init__(self, id):
+        global db
+
+        self.id = str(id)
+
+        doc = db.collection('guilds').document(self.id).get()
+        if not doc.exists:
+            raise GuildNotFoundError(self)
+
+        self.__dict__.update(doc.to_dict())
+
+def leaderboard_purge(guild_id):
+    global db
+
+    expiration_threshold = datetime.utcnow() - timedelta(days = 1)
+    query_ref = db.collection('players').where('guild_id', '==', str(guild_id)).where('initialized_at', '<', expiration_threshold)
+
+    for chunk in chunked(query_ref.stream(), 500):
+        batch = db.batch()
+        for doc in chunk:
+            batch.delete(doc.ref)
+        batch.commit()
+
+def leaderboard_max_score(guild_id):
+    global db
+
+    query_ref = db.collection('players').where('guild_id', '==', str(guild_id)).order_by('score', direction=firestore.Query.DESCENDING).limit(1)
+
+    try:
+        doc = next(query_ref.stream())
+        return doc.to_dict()['score']
+    except StopIteration:
+        return 0
 
 def message_includes(message, word):
     return re.search(rf'\b{word}\b', message.content, flags=re.IGNORECASE)
@@ -38,63 +106,78 @@ client = discord.Client(intents = intents)
 
 @client.event
 async def on_message(message):
-    global channel_id, config, leaderboard, ocean_emoji, reaction_emojis
+    try:
+        guild = message.guild
+        config = Guild(guild.id)
 
-    if message.channel.id != channel_id:
-        return
+        if message.channel.id != int(config.channel_id):
+            return
 
-    reactions = []
+        reaction_emojis = {
+            'gm': config.gm_emoji,
+            'gn': config.gn_emoji,
+        }
 
-    for word, emoji in reaction_emojis.items():
-        if message_includes(message, word):
-            reactions.append(message.add_reaction(emoji))
+        reactions = []
 
-    if len(reactions) > 0:
-        reactions.append(message.add_reaction(ocean_emoji))
+        for word, emoji in reaction_emojis.items():
+            if message_includes(message, word):
+                reactions.append(message.add_reaction(emoji))
 
-    leaderboard_purge()
+        if len(reactions) == 0:
+            return
 
-    player_id = message.author.id
+        reactions.append(message.add_reaction(config.guild_emoji))
 
-    if message_includes(message, 'gm'):
-        leaderboard[player_id] = Player(player_id)
+        member_id = message.author.id
 
-    if message_includes(message, 'gn'):
-        player = leaderboard.get(player_id, None)
-        if player:
-            max_score = max(player.score for player in leaderboard.values())
+        if message_includes(message, 'gm'):
+            Player(guild.id, member_id, initialize = True)
+
+        if message_includes(message, 'gn'):
+            leaderboard_purge(guild.id)
+
+            player = Player(guild.id, member_id)
+
+            max_score = leaderboard_max_score(guild.id)
             if player.score == max_score:
-                reactions.append(message.add_reaction(config.get('bot', 'crown')))
-                role = message.guild.get_role(int(config.get('bot', 'role_id')))
+                reactions.append(message.add_reaction(config.role_emoji))
+
+                role = guild.get_role(int(config.role_id))
                 for user in role.members:
                     reactions.append(user.remove_roles(role))
-                reactions.append(message.author.add_roles(role))
-            player.sleeping = True
 
-    await asyncio.gather(*reactions)
+                reactions.append(message.author.add_roles(role))
+
+            player.sleep()
+
+        await asyncio.gather(*reactions)
+    except GuildNotFoundError as err:
+        print(err)
+    except PlayerNotFoundError:
+        pass
 
 async def check_reaction(reaction, user):
-    global channel_id, leaderboard
-
     message = reaction.message
 
-    if user.id == client.user.id:
-        return
+    try:
+        if user.id == client.user.id or message.author.id == user.id:
+            return
 
-    if message.channel.id != channel_id or message.author.id == user.id:
-        return
+        async for other_user in reaction.users():
+            if other_user.id == client.user.id:
+                break
+        else:
+            return
 
-    player = leaderboard.get(user.id, None)
-    if not player or player.sleeping or message.created_at + timedelta(hours = 1) < datetime.utcnow():
-       return
+        player = Player(message.guild.id, user.id)
+        expiration_threshold = datetime.utcnow() - timedelta(hours = 1)
+        if player.sleeping or message.created_at < expiration_threshold:
+           return
 
-    async for other_user in reaction.users():
-        if other_user.id == client.user.id:
-            break
-    else:
-        return
-
-    return player
+        return player
+    except PlayerNotFoundError:
+        pass
 
 @client.event
 async def on_reaction_add(reaction, user):
@@ -102,8 +185,8 @@ async def on_reaction_add(reaction, user):
     if not player:
         return
 
-    player.score += 1
-    print(f'id: {player.id} score: {player.score}')
+    player.change_score(1)
+    print(f'guild_id: {player.guild_id} member_id: {player.member_id} score: {player.score}')
 
 @client.event
 async def on_reaction_remove(reaction, user):
@@ -111,8 +194,8 @@ async def on_reaction_remove(reaction, user):
     if not player:
         return
 
-    player.score -= 1
-    print(f'id: {player.id} score: {player.score}')
+    player.change_score(-1)
+    print(f'guild_id: {player.guild_id} member_id: {player.member_id} score: {player.score}')
 
 @client.event
 async def on_ready():

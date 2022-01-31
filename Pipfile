@@ -6,6 +6,8 @@ name = "pypi"
 [packages]
 "discord.py" = "*"
 certifi = "*"
+firebase-admin = "*"
+more-itertools = "*"
 
 [dev-packages]
 
