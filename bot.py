@@ -84,7 +84,7 @@ def leaderboard_purge(guild_id):
     for chunk in chunked(query_ref.stream(), 500):
         batch = db.batch()
         for doc in chunk:
-            batch.delete(doc.ref)
+            batch.delete(doc.reference)
         batch.commit()
 
 def leaderboard_max_score(guild_id):
