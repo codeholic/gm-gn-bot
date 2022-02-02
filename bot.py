@@ -68,6 +68,7 @@ class Guild(object):
 
         self.id = str(id)
         self.channel_id = None
+        self.cheater_emoji = None
 
         doc = db.collection('guilds').document(self.id).get()
         if not doc.exists:
@@ -167,7 +168,10 @@ async def check_reaction(reaction, user):
     message = reaction.message
 
     try:
-        if user.id == client.user.id or message.author.id == user.id:
+        if user.id == client.user.id:
+            return
+
+        if message.created_at < datetime.utcnow() - timedelta(hours = 1):
             return
 
         async for other_user in reaction.users():
@@ -176,9 +180,17 @@ async def check_reaction(reaction, user):
         else:
             return
 
+        if message.author.id == user.id:
+            try:
+                config = Guild(message.guild.id)
+                if config.cheater_emoji:
+                    await message.add_reaction(config.cheater_emoji)
+            except GuildNotFoundError as err:
+                print(err)
+            return
+
         player = Player(message.guild.id, user.id)
-        expiration_threshold = datetime.utcnow() - timedelta(hours = 1)
-        if player.sleeping or message.created_at < expiration_threshold:
+        if player.sleeping:
            return
 
         return player
