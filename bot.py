@@ -212,7 +212,9 @@ async def check_reaction(reaction, user):
                 config = Guild(message.guild.id)
                 if config.cheater_emoji:
                     await gn_message.add_reaction(config.cheater_emoji)
-        except (GuildNotFoundError, discord.HTTPException) as err:
+        except discord.HTTPException:
+            pass
+        except GuildNotFoundError as err:
             print(err)
         return
 
