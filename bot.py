@@ -2,7 +2,7 @@ import asyncio
 import configparser
 import discord
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from more_itertools import chunked
 import functools
 
@@ -33,30 +33,32 @@ class PlayerNotFoundError(Error):
         super().__init__(self.message)
 
 class Player(object):
-    def __init__(self, guild_id, member_id, initialize = False):
+    def __init__(self, guild_id, member_id):
         global db
 
         self.guild_id = str(guild_id)
         self.member_id = str(member_id)
         self.initialized_at = datetime.utcnow()
         self.score = 0
-        self.sleeping = False
+        self.slept_at = None
+        self.gn_message_id = None
 
-        if initialize:
-            self.ref().set(self.__dict__)
-            return
-
+    def read(self):
         doc = self.ref().get()
         if not doc.exists:
             raise PlayerNotFoundError(self)
 
         self.__dict__.update(doc.to_dict())
 
+    def reset(self):
+        self.__init__(self.guild_id, self.member_id)
+        self.ref().set(self.__dict__)
+
     def ref(self):
         return db.collection('players').document(f'{self.guild_id}:{self.member_id}')
 
-    def sleep(self):
-        self.ref().update({ 'sleeping': True })
+    def sleep(self, message):
+        self.ref().update({ 'slept_at': datetime.now(timezone.utc), 'gn_message_id': message.id })
 
     def change_score(self, value):
         self.score += value
@@ -138,64 +140,83 @@ async def on_message(message):
 
         member_id = message.author.id
 
+        player = Player(guild.id, member_id)
+
         if greetings.get('gm', False):
-            Player(guild.id, member_id, initialize = True)
+            try:
+                player.read()
+                if player.slept_at and player.slept_at > datetime.now(timezone.utc) - timedelta(hours = 1) and config.cheater_emoji:
+                    reactions.append(message.add_reaction(config.cheater_emoji))
+            except PlayerNotFoundError:
+                pass
+            player.reset()
 
         if greetings.get('gn', False):
             leaderboard_purge(guild.id)
 
-            player = Player(guild.id, member_id)
+            try:
+                player.read()
+                max_score = leaderboard_max_score(guild.id)
+                if player.score == max_score:
+                    reactions.append(message.add_reaction(config.role_emoji))
 
-            max_score = leaderboard_max_score(guild.id)
-            if player.score == max_score:
-                reactions.append(message.add_reaction(config.role_emoji))
+                    role = guild.get_role(int(config.role_id))
+                    for user in role.members:
+                        reactions.append(user.remove_roles(role))
 
-                role = guild.get_role(int(config.role_id))
-                for user in role.members:
-                    reactions.append(user.remove_roles(role))
+                    reactions.append(message.author.add_roles(role))
 
-                reactions.append(message.author.add_roles(role))
-
-            player.sleep()
+                player.sleep(message)
+            except PlayerNotFoundError:
+                pass
     except GuildNotFoundError as err:
         print(err)
-    except PlayerNotFoundError:
-        pass
 
     await asyncio.gather(*reactions)
 
 async def check_reaction(reaction, user):
     message = reaction.message
 
+    if user.id == client.user.id:
+        return
+
+    if message.created_at < datetime.utcnow() - timedelta(hours = 1):
+        return
+
+    async for other_user in reaction.users():
+        if other_user.id == client.user.id:
+            break
+    else:
+        return
+
+    if message.author.id == user.id:
+        try:
+            config = Guild(message.guild.id)
+            if config.cheater_emoji:
+                await message.add_reaction(config.cheater_emoji)
+        except GuildNotFoundError as err:
+            print(err)
+        return
+
+    player = Player(message.guild.id, user.id)
     try:
-        if user.id == client.user.id:
-            return
+        player.read()
+    except PlayerNotFoundError:
+        return
 
-        if message.created_at < datetime.utcnow() - timedelta(hours = 1):
-            return
+    if player.slept_at:
+        try:
+            if player.gn_message_id:
+                gn_message = await message.channel.fetch_message(player.gn_message_id)
 
-        async for other_user in reaction.users():
-            if other_user.id == client.user.id:
-                break
-        else:
-            return
-
-        if message.author.id == user.id:
-            try:
                 config = Guild(message.guild.id)
                 if config.cheater_emoji:
-                    await message.add_reaction(config.cheater_emoji)
-            except GuildNotFoundError as err:
-                print(err)
-            return
+                    await gn_message.add_reaction(config.cheater_emoji)
+        except (GuildNotFoundError, discord.HTTPException) as err:
+            print(err)
+        return
 
-        player = Player(message.guild.id, user.id)
-        if player.sleeping:
-           return
-
-        return player
-    except PlayerNotFoundError:
-        pass
+    return player
 
 @client.event
 async def on_reaction_add(reaction, user):
