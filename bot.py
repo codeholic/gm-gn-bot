@@ -71,6 +71,7 @@ class Guild(object):
         self.id = str(id)
         self.channel_id = None
         self.cheater_emoji = None
+        self.display_score = False
 
         doc = db.collection('guilds').document(self.id).get()
         if not doc.exists:
@@ -166,6 +167,9 @@ async def on_message(message):
 
                     reactions.append(message.author.add_roles(role))
 
+                if config.display_score:
+                    reactions.append(message.channel.send(f'<@{member_id}> Your score is {player.score}. See you tomorrow! 👋'))
+
                 player.sleep(message)
             except PlayerNotFoundError:
                 pass
@@ -240,7 +244,7 @@ async def on_reaction_remove(reaction, user):
 
 @client.event
 async def on_ready():
-    permissions = discord.Permissions(manage_roles = True, read_message_history = True, add_reactions = True)
+    permissions = discord.Permissions(manage_roles=True, read_message_history=True, send_messages=True, add_reactions=True)
     print(f'Add bot to server: https://discordapp.com/oauth2/authorize/?permissions={permissions.value}&scope=bot&client_id={client.user.id}')
 
 client.run(config.get('bot', 'token'))
