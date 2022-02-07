@@ -157,20 +157,24 @@ async def on_message(message):
 
             try:
                 player.read()
-                max_score = leaderboard_max_score(guild.id)
-                if player.score == max_score:
-                    reactions.append(message.add_reaction(config.role_emoji))
+                if player.slept_at:
+                    if player.slept_at > datetime.now(timezone.utc) - timedelta(hours = 1) and config.cheater_emoji:
+                        reactions.append(message.add_reaction(config.cheater_emoji))
+                else:
+                    max_score = leaderboard_max_score(guild.id)
+                    if player.score == max_score:
+                        reactions.append(message.add_reaction(config.role_emoji))
 
-                    role = guild.get_role(int(config.role_id))
-                    for user in role.members:
-                        reactions.append(user.remove_roles(role))
+                        role = guild.get_role(int(config.role_id))
+                        for user in role.members:
+                            reactions.append(user.remove_roles(role))
 
-                    reactions.append(message.author.add_roles(role))
+                        reactions.append(message.author.add_roles(role))
 
-                if config.display_score:
-                    reactions.append(message.channel.send(f'<@{member_id}> Your score is {player.score}. See you tomorrow! 👋'))
+                    if config.display_score:
+                        reactions.append(message.channel.send(f'<@{member_id}> Your score is {player.score}. See you tomorrow! 👋'))
 
-                player.sleep(message)
+                    player.sleep(message)
             except PlayerNotFoundError:
                 pass
     except GuildNotFoundError as err:
