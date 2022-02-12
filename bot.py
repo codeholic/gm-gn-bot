@@ -71,6 +71,7 @@ class Guild(object):
         self.id = str(id)
         self.channel_id = None
         self.cheater_emoji = None
+        self.guild_emoji = None
         self.display_score = False
 
         doc = db.collection('guilds').document(self.id).get()
