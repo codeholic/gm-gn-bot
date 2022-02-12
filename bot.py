@@ -137,7 +137,8 @@ async def on_message(message):
             if greetings.get(word, False):
                 reactions.append(message.add_reaction(emoji))
 
-        reactions.append(message.add_reaction(config.guild_emoji))
+        if config.guild_emoji:
+            reactions.append(message.add_reaction(config.guild_emoji))
 
         member_id = message.author.id
 
