@@ -1,10 +1,14 @@
 import asyncio
 import configparser
 import discord
+from discord.ext import tasks
 import re
 from datetime import datetime, timedelta, timezone
 from more_itertools import chunked
+from random import randint
 import functools
+
+MINUTES_IN_DAY = 24 * 60
 
 config = configparser.ConfigParser()
 with open('bot.ini', 'r') as file:
@@ -48,6 +52,9 @@ class Player(object):
         if not doc.exists:
             raise PlayerNotFoundError(self)
 
+        self.read_from(doc)
+
+    def read_from(self, doc):
         self.__dict__.update(doc.to_dict())
 
     def reset(self):
@@ -69,16 +76,29 @@ class Guild(object):
         global db
 
         self.id = str(id)
+        self.celebrate_at = None
         self.channel_id = None
         self.cheater_emoji = None
-        self.guild_emoji = None
         self.display_score = False
+        self.guild_emoji = None
 
-        doc = db.collection('guilds').document(self.id).get()
+    def read(self):
+        doc = self.ref().get()
         if not doc.exists:
             raise GuildNotFoundError(self)
 
+        self.read_from(doc)
+
+    def read_from(self, doc):
         self.__dict__.update(doc.to_dict())
+
+    def schedule_celebration(self):
+        offset = MINUTES_IN_DAY + randint(0, MINUTES_IN_DAY - 1)
+        self.celebrate_at = self.celebrate_at.replace(hour=0, minute=0, second=0) + timedelta(minutes=offset)
+        self.ref().update({ 'celebrate_at': self.celebrate_at })
+
+    def ref(self):
+        return db.collection('guilds').document(self.id)
 
 def leaderboard_purge(guild_id):
     global db
@@ -92,14 +112,16 @@ def leaderboard_purge(guild_id):
             batch.delete(doc.reference)
         batch.commit()
 
-def leaderboard_max_score(guild_id):
+def leaderboard_winner(guild_id):
     global db
 
     query_ref = db.collection('players').where('guild_id', '==', str(guild_id)).order_by('score', direction=firestore.Query.DESCENDING).limit(1)
 
     try:
         doc = next(query_ref.stream())
-        return doc.to_dict()['score']
+        winner = Player(guild_id, 0)
+        winner.read_from(doc)
+        return winner
     except StopIteration:
         return 0
 
@@ -109,6 +131,29 @@ def message_includes(message, word):
 intents = discord.Intents.default()
 intents.members = True
 client = discord.Client(intents = intents)
+
+@tasks.loop(minutes=1)
+async def celebrate():
+    global db
+
+    query_ref = db.collection('guilds').where('celebrate_at', '<', datetime.utcnow())
+
+    for doc in query_ref.stream():
+        config = Guild(doc.id)
+        config.read_from(doc)
+
+        guild = discord.utils.get(client.guilds, id=int(config.id))
+        if not guild:
+            continue
+
+        channel = discord.utils.get(guild.text_channels, id=int(config.channel_id))
+        if not channel:
+            continue
+
+        winner = leaderboard_winner(config.id)
+        await channel.send(f'Congrats <@{winner.member_id}> {config.role_emoji} <@&{config.role_id}>!')
+
+        config.schedule_celebration()
 
 @client.event
 async def on_message(message):
@@ -125,6 +170,7 @@ async def on_message(message):
     try:
         guild = message.guild
         config = Guild(guild.id)
+        config.read()
 
         if config.channel_id and message.channel.id != int(config.channel_id):
             return
@@ -163,8 +209,8 @@ async def on_message(message):
                     if player.slept_at > datetime.now(timezone.utc) - timedelta(hours = 1) and config.cheater_emoji:
                         reactions.append(message.add_reaction(config.cheater_emoji))
                 else:
-                    max_score = leaderboard_max_score(guild.id)
-                    if player.score == max_score:
+                    winner = leaderboard_winner(guild.id)
+                    if player.score == winner.score:
                         reactions.append(message.add_reaction(config.role_emoji))
 
                         role = guild.get_role(int(config.role_id))
@@ -202,6 +248,7 @@ async def check_reaction(reaction, user):
     if message.author.id == user.id:
         try:
             config = Guild(message.guild.id)
+            config.read()
             if config.cheater_emoji:
                 await message.add_reaction(config.cheater_emoji)
         except GuildNotFoundError as err:
@@ -220,6 +267,7 @@ async def check_reaction(reaction, user):
                 gn_message = await message.channel.fetch_message(player.gn_message_id)
 
                 config = Guild(message.guild.id)
+                config.read()
                 if config.cheater_emoji:
                     await gn_message.add_reaction(config.cheater_emoji)
         except discord.HTTPException:
@@ -251,6 +299,7 @@ async def on_reaction_remove(reaction, user):
 @client.event
 async def on_ready():
     permissions = discord.Permissions(manage_roles=True, read_message_history=True, send_messages=True, add_reactions=True)
+    celebrate.start()
     print(f'Add bot to server: https://discordapp.com/oauth2/authorize/?permissions={permissions.value}&scope=bot&client_id={client.user.id}')
 
 client.run(config.get('bot', 'token'))
