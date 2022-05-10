@@ -52,9 +52,6 @@ class Player(object):
         if not doc.exists:
             raise PlayerNotFoundError(self)
 
-        self.read_from(doc)
-
-    def read_from(self, doc):
         self.__dict__.update(doc.to_dict())
 
     def reset(self):
@@ -112,16 +109,14 @@ def leaderboard_purge(guild_id):
             batch.delete(doc.reference)
         batch.commit()
 
-def leaderboard_winner(guild_id):
+def leaderboard_max_score(guild_id):
     global db
 
     query_ref = db.collection('players').where('guild_id', '==', str(guild_id)).order_by('score', direction=firestore.Query.DESCENDING).limit(1)
 
     try:
         doc = next(query_ref.stream())
-        winner = Player(guild_id, 0)
-        winner.read_from(doc)
-        return winner
+        return doc.to_dict()['score']
     except StopIteration:
         return 0
 
@@ -147,11 +142,12 @@ async def celebrate():
             continue
 
         channel = discord.utils.get(guild.text_channels, id=int(config.channel_id))
-        if not channel:
+        role = discord.utils.get(guild.roles, id=int(config.role_id))
+        if not channel or not role or not role.members:
             continue
 
-        winner = leaderboard_winner(config.id)
-        await channel.send(f'Congrats <@{winner.member_id}> {config.role_emoji} <@&{config.role_id}>!')
+        winner = role.members[0]
+        await channel.send(f'Congrats <@{winner.id}> {config.role_emoji} <@&{config.role_id}>!')
 
         config.schedule_celebration()
 
@@ -209,8 +205,8 @@ async def on_message(message):
                     if player.slept_at > datetime.now(timezone.utc) - timedelta(hours = 1) and config.cheater_emoji:
                         reactions.append(message.add_reaction(config.cheater_emoji))
                 else:
-                    winner = leaderboard_winner(guild.id)
-                    if player.score == winner.score:
+                    max_score = leaderboard_max_score(guild.id)
+                    if player.score == max_score:
                         reactions.append(message.add_reaction(config.role_emoji))
 
                         role = guild.get_role(int(config.role_id))
