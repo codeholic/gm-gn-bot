@@ -4,6 +4,7 @@ import discord
 from discord.ext import tasks
 import re
 from datetime import datetime, timedelta, timezone
+from itertools import chain
 from more_itertools import chunked
 from random import randint
 import functools
@@ -101,9 +102,13 @@ def leaderboard_purge(guild_id):
     global db
 
     expiration_threshold = datetime.utcnow() - timedelta(days = 1)
-    query_ref = db.collection('players').where('guild_id', '==', str(guild_id)).where('initialized_at', '<', expiration_threshold)
+    base_query = db.collection('players').where('guild_id', '==', str(guild_id))
+    query_stream = chain(
+        base_query.where('slept_at', '==', None).where('initialized_at', '<', expiration_threshold).stream(),
+        base_query.where('slept_at', '<', expiration_threshold).stream(),
+    )
 
-    for chunk in chunked(query_ref.stream(), 500):
+    for chunk in chunked(query_stream, 500):
         batch = db.batch()
         for doc in chunk:
             batch.delete(doc.reference)
