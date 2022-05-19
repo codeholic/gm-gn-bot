@@ -102,10 +102,13 @@ def leaderboard_purge(guild_id):
     global db
 
     expiration_threshold = datetime.utcnow() - timedelta(days = 1)
+    sleep_threshold = datetime.utcnow() - timedelta(hours = 8)
+
     base_query = db.collection('players').where('guild_id', '==', str(guild_id))
+
     query_stream = chain(
         base_query.where('slept_at', '==', None).where('initialized_at', '<', expiration_threshold).stream(),
-        base_query.where('slept_at', '<', expiration_threshold).stream(),
+        base_query.where('slept_at', '<', sleep_threshold).stream(),
     )
 
     for chunk in chunked(query_stream, 500):
