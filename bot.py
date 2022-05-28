@@ -78,6 +78,7 @@ class Guild(object):
         self.channel_id = None
         self.cheater_emoji = None
         self.display_score = False
+        self.event_starts_at = None
         self.guild_emoji = None
 
     def read(self):
@@ -98,7 +99,7 @@ class Guild(object):
     def ref(self):
         return db.collection('guilds').document(self.id)
 
-def leaderboard_purge(guild_id):
+def leaderboard_purge(guild_id, all=False):
     global db
 
     expiration_threshold = datetime.utcnow() - timedelta(days = 1)
@@ -106,7 +107,7 @@ def leaderboard_purge(guild_id):
 
     base_query = db.collection('players').where('guild_id', '==', str(guild_id))
 
-    query_stream = chain(
+    query_stream = base_query.stream() if all else chain(
         base_query.where('slept_at', '==', None).where('initialized_at', '<', expiration_threshold).stream(),
         base_query.where('slept_at', '<', sleep_threshold).stream(),
     )
@@ -158,6 +159,29 @@ async def celebrate():
         await channel.send(f'Congrats <@{winner.id}> {config.role_emoji} <@&{config.role_id}>!')
 
         config.schedule_celebration()
+
+@tasks.loop(minutes=1)
+async def start_event():
+    global db
+
+    query_ref = db.collection('guilds').where('event_starts_at', '<=', datetime.utcnow())
+
+    for doc in query_ref.stream():
+        config = Guild(doc.id)
+        config.read_from(doc)
+
+        guild = discord.utils.get(client.guilds, id=int(config.id))
+        if not guild:
+            continue
+
+        channel = discord.utils.get(guild.text_channels, id=int(config.channel_id))
+        if not channel:
+            continue
+
+        leaderboard_purge(doc.id, all=True)
+        config.ref().update({ 'event_starts_at': None })
+
+        await channel.send(f'Our event starts right now! {config.gm_emoji}')
 
 @client.event
 async def on_message(message):
@@ -304,6 +328,7 @@ async def on_reaction_remove(reaction, user):
 async def on_ready():
     permissions = discord.Permissions(manage_roles=True, read_message_history=True, send_messages=True, add_reactions=True)
     celebrate.start()
+    start_event.start()
     print(f'Add bot to server: https://discordapp.com/oauth2/authorize/?permissions={permissions.value}&scope=bot&client_id={client.user.id}')
 
 client.run(config.get('bot', 'token'))
