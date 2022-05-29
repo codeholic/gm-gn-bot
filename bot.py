@@ -203,6 +203,18 @@ async def on_message(message):
         if config.channel_id and message.channel.id != int(config.channel_id):
             return
 
+        reaction_emojis = {
+            'gm': config.gm_emoji,
+            'gn': config.gn_emoji,
+        }
+
+        for word, emoji in reaction_emojis.items():
+            if greetings.get(word, False):
+                reactions.append(message.add_reaction(emoji))
+
+        if config.guild_emoji:
+            reactions.append(message.add_reaction(config.guild_emoji))
+
         member_id = message.author.id
 
         player = Player(guild.id, member_id)
@@ -212,27 +224,19 @@ async def on_message(message):
                 player.read()
                 if player.slept_at and player.slept_at > datetime.now(timezone.utc) - timedelta(hours = 1) and config.cheater_emoji:
                     reactions.append(message.add_reaction(config.cheater_emoji))
-                else:
-                    reactions.append(message.add_reaction(config.gm_emoji))
-                    if config.guild_emoji:
-                        reactions.append(message.add_reaction(config.guild_emoji))
-                    player.reset()
             except PlayerNotFoundError:
                 pass
+            player.reset()
 
         if greetings.get('gn', False):
+            leaderboard_purge(guild.id)
+
             try:
                 player.read()
                 if player.slept_at:
                     if player.slept_at > datetime.now(timezone.utc) - timedelta(hours = 1) and config.cheater_emoji:
                         reactions.append(message.add_reaction(config.cheater_emoji))
                 else:
-                    reactions.append(message.add_reaction(config.gn_emoji))
-                    if config.guild_emoji:
-                        reactions.append(message.add_reaction(config.guild_emoji))
-
-                    leaderboard_purge(guild.id)
-
                     max_score = leaderboard_max_score(guild.id)
                     if player.score == max_score:
                         reactions.append(message.add_reaction(config.role_emoji))
